@@ -1,7 +1,7 @@
-# Claude Usage Bar
+# Claude WatchBar 🔭
 
 <p align="center">
-  <img src="screenshots/collapsed.jpg" alt="Claude Usage Bar" width="420">
+  <img src="screenshots/collapsed.jpg" alt="Claude WatchBar" width="420">
 </p>
 
 **Native macOS menu bar app for tracking Claude Code token usage, costs, and rate limits.**
@@ -57,7 +57,7 @@ Smooth expand/collapse animation. All data, no scrollbar.
 One command. The installer handles everything automatically:
 
 ```bash
-git clone https://github.com/HooMDooM/claude-usage-bar && cd claude-usage-bar && ./install.sh
+git clone https://github.com/HooMDooM/claude-watchbar && cd claude-watchbar && ./install.sh
 ```
 
 **What the installer does:**
@@ -144,7 +144,7 @@ Costs are estimated using Anthropic API pricing (April 2026):
   ~/.claude/usage.db              Token usage database
         |
         v
-  Claude Usage Bar                Reads DB, shows in menu bar
+  Claude WatchBar                Reads DB, shows in menu bar
 ```
 
 The app is a single Swift file (`main.swift`) compiled into a native macOS `.app` bundle. It uses:

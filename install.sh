@@ -9,7 +9,7 @@ SCANNER_DIR="$HOME/.claude-usage-scanner"
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║       Claude Usage Bar Installer     ║"
+echo "  ║       Claude WatchBar Installer     ║"
 echo "  ╚══════════════════════════════════════╝"
 echo ""
 
