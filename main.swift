@@ -345,8 +345,8 @@ func createBarImage(sPct: Double, wPct: Double, active: Bool = false) -> NSImage
     let img = NSImage(size: NSSize(width: w, height: h))
     img.lockFocus()
     let bg = active ? NSColor(white: 0.5, alpha: 1.0) : NSColor(white: 0.3, alpha: 1.0)
-    let sColor = active ? NSColor.white : pctColor(sPct)
-    let wColor = active ? NSColor.white : pctColor(wPct)
+    let sColor = active ? pctColor(sPct) : NSColor.white
+    let wColor = active ? pctColor(wPct) : NSColor.white
 
     // Top bar = session (5h)
     let sy = h - bh - pad
