@@ -1,0 +1,4 @@
+ClaudeUsageBar
+Claude Usage.app/
+*.app/
+.DS_Store
