@@ -222,6 +222,103 @@ struct LimitInfo {
     var sessionReset: String = ""; var weeklyReset: String = ""
 }
 
+// ═══════════════════════════════════════════════════════════════
+// MARK: - Anthropic API Rate Limits
+// ═══════════════════════════════════════════════════════════════
+
+func readClaudeOAuthToken() -> String? {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+    task.arguments = ["find-generic-password", "-s", "Claude Code-credentials", "-w"]
+    let pipe = Pipe()
+    task.standardOutput = pipe
+    task.standardError = FileHandle.nullDevice
+    do { try task.run() } catch { return nil }
+    task.waitUntilExit()
+    guard task.terminationStatus == 0 else { return nil }
+
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    guard let str = String(data: data, encoding: .utf8),
+          let jsonData = str.data(using: .utf8),
+          let j = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+          let oauth = j["claudeAiOauth"] as? [String: Any],
+          let token = oauth["accessToken"] as? String else {
+        return nil
+    }
+    return token
+}
+
+struct ApiLimits {
+    var session5hPct: Double?
+    var weekly7dPct: Double?
+    var session5hResetUnix: Int?
+    var weekly7dResetUnix: Int?
+    var plan: String?
+}
+
+// Cache to avoid hammering API
+var apiLimitsCache: (info: ApiLimits, timestamp: Date)?
+let apiCacheTTL: TimeInterval = 25  // seconds
+
+func fetchApiLimits() -> ApiLimits? {
+    // Return cached if fresh
+    if let c = apiLimitsCache, Date().timeIntervalSince(c.timestamp) < apiCacheTTL {
+        return c.info
+    }
+
+    guard let token = readClaudeOAuthToken() else { return nil }
+
+    var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
+    req.httpMethod = "POST"
+    req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+    req.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.httpBody = """
+        {"model":"claude-haiku-4-5","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}
+        """.data(using: .utf8)
+    req.timeoutInterval = 10
+
+    let sem = DispatchSemaphore(value: 0)
+    var result: ApiLimits?
+
+    URLSession.shared.dataTask(with: req) { _, response, _ in
+        defer { sem.signal() }
+        guard let http = response as? HTTPURLResponse else { return }
+        var info = ApiLimits()
+        for (k, v) in http.allHeaderFields {
+            guard let key = (k as? String)?.lowercased(),
+                  let val = v as? String else { continue }
+            switch key {
+            case "anthropic-ratelimit-unified-5h-utilization":
+                info.session5hPct = Double(val)
+            case "anthropic-ratelimit-unified-7d-utilization":
+                info.weekly7dPct = Double(val)
+            case "anthropic-ratelimit-unified-5h-reset":
+                info.session5hResetUnix = Int(val)
+            case "anthropic-ratelimit-unified-7d-reset":
+                info.weekly7dResetUnix = Int(val)
+            default: break
+            }
+        }
+        if info.session5hPct != nil || info.weekly7dPct != nil {
+            result = info
+        }
+    }.resume()
+
+    _ = sem.wait(timeout: .now() + 12)
+
+    if let r = result {
+        apiLimitsCache = (r, Date())
+    }
+    return result
+}
+
+func fmtUnixReset(_ unix: Int) -> String {
+    let seconds = unix - Int(Date().timeIntervalSince1970)
+    return fmtTimeLeft(seconds)
+}
+
 struct PlanCfg {
     var plan: String; var sessionLimit: Double; var weeklyLimit: Double
 }
@@ -283,16 +380,22 @@ func fetchLimits() -> LimitInfo {
     let cfg = loadPlanCfg()
     var info = LimitInfo(plan: cfg.plan)
 
-    // Calculate everything from local token data
+    // Try real Anthropic API first (exact values from their servers)
+    if let api = fetchApiLimits() {
+        if let p = api.session5hPct { info.sessionPct = p }
+        if let p = api.weekly7dPct  { info.weeklyPct  = p }
+        if let r = api.session5hResetUnix { info.sessionReset = fmtUnixReset(r) }
+        if let r = api.weekly7dResetUnix  { info.weeklyReset  = fmtUnixReset(r) }
+        return info
+    }
+
+    // Fallback: approximate from local token data if API unreachable
     let sc = fetchCostInWindow(5)
     let wc = fetchCostInWindow(168)
     info.sessionPct = cfg.sessionLimit > 0 ? min(sc / cfg.sessionLimit, 1.0) : 0
     info.weeklyPct  = cfg.weeklyLimit > 0  ? min(wc / cfg.weeklyLimit, 1.0)  : 0
-
-    // Reset times = window remaining from oldest turn
     info.sessionReset = fmtTimeLeft(fetchOldestTurnAge(5))
     info.weeklyReset  = fmtTimeLeft(fetchOldestTurnAge(168))
-
     return info
 }
 
